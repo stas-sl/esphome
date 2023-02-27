@@ -47,18 +47,25 @@ void PMSX003Component::set_formaldehyde_sensor(sensor::Sensor *formaldehyde_sens
   formaldehyde_sensor_ = formaldehyde_sensor;
 }
 
+void PMSX003Component::setup() {
+  this->is_laser_save_mode_ = this->update_interval_ > PMS_STABILISING_MS;
+
+  if (this->is_laser_save_mode_) {
+    this->send_command_(PMS_CMD_AUTO_MANUAL, 0);
+    this->send_command_(PMS_CMD_ON_STANDBY, 0);
+  } else {
+    this->send_command_(PMS_CMD_AUTO_MANUAL, 1);
+    this->send_command_(PMS_CMD_ON_STANDBY, 1);
+  }
+}
+
 void PMSX003Component::loop() {
   const uint32_t now = millis();
 
   // If we update less often than it takes the device to stabilise, spin the fan down
   // rather than running it constantly. It does take some time to stabilise, so we
   // need to keep track of what state we're in.
-  if (this->update_interval_ > PMS_STABILISING_MS) {
-    if (this->initialised_ == 0) {
-      this->send_command_(PMS_CMD_AUTO_MANUAL, 0);
-      this->send_command_(PMS_CMD_ON_STANDBY, 1);
-      this->initialised_ = 1;
-    }
+  if (this->is_laser_save_mode_) {
     switch (this->state_) {
       case PMSX003_STATE_IDLE:
         // Power on the sensor now so it'll be ready when we hit the update time
@@ -90,9 +97,11 @@ void PMSX003Component::loop() {
     return;
   }
 
-  if (now - this->last_transmission_ >= 500) {
+  if (now - this->last_transmission_ >= 500 && this->data_index_ > 0) {
     // last transmission too long ago. Reset RX index.
     this->data_index_ = 0;
+    if (this->is_laser_save_mode_)
+      this->send_command_(PMS_CMD_TRIG_MANUAL, 0);
   }
 
   if (this->available() == 0)
@@ -107,9 +116,21 @@ void PMSX003Component::loop() {
       this->parse_data_();
       this->data_index_ = 0;
       this->last_update_ = now;
+
+      // Spin down the sensor again if we aren't going to need it until more time has
+      // passed than it takes to stabilise
+      if (this->is_laser_save_mode_) {
+        this->send_command_(PMS_CMD_ON_STANDBY, 0);
+        this->state_ = PMSX003_STATE_IDLE;
+      }
+
+      this->status_clear_warning();
     } else if (!*check) {
       // wrong data
       this->data_index_ = 0;
+
+      if (this->is_laser_save_mode_)
+        this->send_command_(PMS_CMD_TRIG_MANUAL, 0);
     } else {
       // next byte
       this->data_index_++;
@@ -278,19 +299,12 @@ void PMSX003Component::parse_data_() {
       break;
     }
   }
-
-  // Spin down the sensor again if we aren't going to need it until more time has
-  // passed than it takes to stabilise
-  if (this->update_interval_ > PMS_STABILISING_MS) {
-    this->send_command_(PMS_CMD_ON_STANDBY, 0);
-    this->state_ = PMSX003_STATE_IDLE;
-  }
-
-  this->status_clear_warning();
 }
+
 uint16_t PMSX003Component::get_16_bit_uint_(uint8_t start_index) {
   return (uint16_t(this->data_[start_index]) << 8) | uint16_t(this->data_[start_index + 1]);
 }
+
 void PMSX003Component::dump_config() {
   ESP_LOGCONFIG(TAG, "PMSX003:");
   LOG_SENSOR("  ", "PM1.0STD", this->pm_1_0_std_sensor_);

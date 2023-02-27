@@ -30,6 +30,7 @@ enum PMSX003State {
 class PMSX003Component : public uart::UARTDevice, public Component {
  public:
   PMSX003Component() = default;
+  void setup() override;
   void loop() override;
   float get_setup_priority() const override;
   void dump_config() override;
@@ -65,13 +66,13 @@ class PMSX003Component : public uart::UARTDevice, public Component {
 
   uint8_t data_[64];
   uint8_t data_index_{0};
-  uint8_t initialised_{0};
   uint32_t fan_on_time_{0};
   uint32_t last_update_{0};
   uint32_t last_transmission_{0};
   uint32_t update_interval_{0};
   PMSX003State state_{PMSX003_STATE_IDLE};
   PMSX003Type type_;
+  bool is_laser_save_mode_;
 
   // "Standard Particle"
   sensor::Sensor *pm_1_0_std_sensor_{nullptr};
