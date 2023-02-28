@@ -8,9 +8,7 @@ namespace esphome {
 namespace pmsx003 {
 
 // known command bytes
-#define PMS_CMD_AUTO_MANUAL 0xE1  // data=0: perform measurement manually, data=1: perform measurement automatically
-#define PMS_CMD_TRIG_MANUAL 0xE2  // trigger a manual measurement
-#define PMS_CMD_ON_STANDBY 0xE4   // data=0: go to standby mode, data=1: go to normal mode
+#define PMS_CMD_SLEEP_WAKEUP 0xE4    // data=0: sleep, data=1: wakeup
 
 static const uint16_t PMS_STABILISING_MS = 30000;  // time taken for the sensor to become stable after power on
 
@@ -63,6 +61,7 @@ class PMSX003Component : public uart::UARTDevice, public Component {
   void parse_data_();
   void send_command_(uint8_t cmd, uint16_t data);
   uint16_t get_16_bit_uint_(uint8_t start_index);
+  void flush_();
 
   uint8_t data_[64];
   uint8_t data_index_{0};

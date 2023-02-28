@@ -50,13 +50,10 @@ void PMSX003Component::set_formaldehyde_sensor(sensor::Sensor *formaldehyde_sens
 void PMSX003Component::setup() {
   this->is_laser_save_mode_ = this->update_interval_ > PMS_STABILISING_MS;
 
-  if (this->is_laser_save_mode_) {
-    this->send_command_(PMS_CMD_AUTO_MANUAL, 0);
-    this->send_command_(PMS_CMD_ON_STANDBY, 0);
-  } else {
-    this->send_command_(PMS_CMD_AUTO_MANUAL, 1);
-    this->send_command_(PMS_CMD_ON_STANDBY, 1);
-  }
+  if (this->is_laser_save_mode_)
+    this->set_timeout(1000, [this]() { this->send_command_(PMS_CMD_SLEEP_WAKEUP, 0); });
+  else
+    this->set_timeout(1000, [this]() { this->send_command_(PMS_CMD_SLEEP_WAKEUP, 1); });
 }
 
 void PMSX003Component::loop() {
@@ -73,7 +70,7 @@ void PMSX003Component::loop() {
           return;
 
         this->state_ = PMSX003_STATE_STABILISING;
-        this->send_command_(PMS_CMD_ON_STANDBY, 1);
+        this->send_command_(PMS_CMD_SLEEP_WAKEUP, 1);
         this->fan_on_time_ = now;
         return;
       case PMSX003_STATE_STABILISING:
@@ -81,10 +78,7 @@ void PMSX003Component::loop() {
         if (now - this->fan_on_time_ < PMS_STABILISING_MS)
           return;
         // consume any command responses that are in the serial buffer
-        while (this->available())
-          this->read_byte(&this->data_[0]);
-        // Trigger a new read
-        this->send_command_(PMS_CMD_TRIG_MANUAL, 0);
+        this->flush_();
         this->state_ = PMSX003_STATE_WAITING;
         break;
       case PMSX003_STATE_WAITING:
@@ -94,14 +88,13 @@ void PMSX003Component::loop() {
   } else if (now - this->last_update_ < this->update_interval_) {
     // Otherwise just leave the sensor powered up and come back when we hit the update
     // time
+    this->flush_();
     return;
   }
 
   if (now - this->last_transmission_ >= 500 && this->data_index_ > 0) {
     // last transmission too long ago. Reset RX index.
     this->data_index_ = 0;
-    if (this->is_laser_save_mode_)
-      this->send_command_(PMS_CMD_TRIG_MANUAL, 0);
   }
 
   if (this->available() == 0)
@@ -120,17 +113,15 @@ void PMSX003Component::loop() {
       // Spin down the sensor again if we aren't going to need it until more time has
       // passed than it takes to stabilise
       if (this->is_laser_save_mode_) {
-        this->send_command_(PMS_CMD_ON_STANDBY, 0);
+        this->send_command_(PMS_CMD_SLEEP_WAKEUP, 0);
         this->state_ = PMSX003_STATE_IDLE;
       }
 
       this->status_clear_warning();
+      break;
     } else if (!*check) {
       // wrong data
       this->data_index_ = 0;
-
-      if (this->is_laser_save_mode_)
-        this->send_command_(PMS_CMD_TRIG_MANUAL, 0);
     } else {
       // next byte
       this->data_index_++;
@@ -214,6 +205,7 @@ void PMSX003Component::send_command_(uint8_t cmd, uint16_t data) {
 }
 
 void PMSX003Component::parse_data_() {
+  ESP_LOGI(TAG, "parse_data_");
   switch (this->type_) {
     case PMSX003_TYPE_5003ST: {
       float temperature = this->get_16_bit_uint_(30) / 10.0f;
@@ -326,6 +318,11 @@ void PMSX003Component::dump_config() {
   LOG_SENSOR("  ", "Humidity", this->humidity_sensor_);
   LOG_SENSOR("  ", "Formaldehyde", this->formaldehyde_sensor_);
   this->check_uart_settings(9600);
+}
+
+void PMSX003Component::flush_() {
+  while (this->available())
+    this->read_byte(this->data_);
 }
 
 }  // namespace pmsx003
