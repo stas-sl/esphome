@@ -206,6 +206,7 @@ std::shared_ptr<HttpContainer> HttpRequestIDF::perform(std::string url, std::str
 
   ESP_LOGE(TAG, "HTTP Request failed; URL: %s; Code: %d", url.c_str(), container->status_code);
   this->status_momentary_error("failed", 1000);
+  container->duration_ms = millis() - start;
   return container;
 }
 
